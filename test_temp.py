@@ -10,10 +10,6 @@ from reportlab.lib import colors
 from reportlab.lib.pagesizes import letter
 from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
-import folium
-from streamlit_folium import st_folium
-import requests
-import random
 
 
 # =========================
@@ -84,114 +80,28 @@ def generate_itinerary(destination, budget, days, interests):
         return {"error": f"Invalid JSON response from Gemini: {e}"}
 
 
-def get_coordinates(location):
-    """Get coordinates for a location using Nominatim API."""
-    try:
-        url = f"https://nominatim.openstreetmap.org/search?q={location}&format=json&limit=1"
-        headers = {'User-Agent': 'TravelPlanner/1.0'}
-        response = requests.get(url, headers=headers)
-        data = response.json()
-        
-        if data:
-            return float(data[0]['lat']), float(data[0]['lon'])
-        return None, None
-    except:
-        return None, None
-
-def create_impressive_map(destination, activities=None):
-    """Create an impressive interactive map using Folium and OpenStreetMap."""
-    
-    # Get coordinates for destination
-    dest_lat, dest_lon = get_coordinates(destination)
-    
-    if dest_lat is None or dest_lon is None:
-        # Fallback coordinates for major cities
-        fallback_coords = {
-            'paris': (48.8566, 2.3522),
-            'london': (51.5074, -0.1278),
-            'new york': (40.7128, -74.0060),
-            'tokyo': (35.6762, 139.6503),
-            'mumbai': (19.0760, 72.8777),
-            'delhi': (28.7041, 77.1025),
-            'bangalore': (12.9716, 77.5946),
-            'dubai': (25.2048, 55.2708),
-            'singapore': (1.3521, 103.8198),
-            'sydney': (-33.8688, 151.2093)
-        }
-        
-        dest_lower = destination.lower()
-        for city, coords in fallback_coords.items():
-            if city in dest_lower:
-                dest_lat, dest_lon = coords
-                break
-        else:
-            # Default to Paris if no match
-            dest_lat, dest_lon = (48.8566, 2.3522)
-    
-    # Create map with default tiles to avoid issues
-    m = folium.Map(
-        location=[dest_lat, dest_lon],
-        zoom_start=12
-    )
-    
-    # Add destination marker
-    folium.Marker(
-        [dest_lat, dest_lon],
-        popup=f"<b>🎯 {destination}</b><br>Your destination!",
-        tooltip=f"Destination: {destination}",
-        icon=folium.Icon(color='red', icon='star')
-    ).add_to(m)
-    
-    # Add activity markers if provided
-    if activities:
-        colors = ['blue', 'green', 'purple', 'orange', 'darkred', 'lightred', 'beige', 'darkblue', 'darkgreen', 'cadetblue']
-        
-        for i, activity in enumerate(activities[:10]):  # Limit to 10 activities
-            # Generate random coordinates around destination for demo
-            offset_lat = random.uniform(-0.05, 0.05)
-            offset_lon = random.uniform(-0.05, 0.05)
-            activity_lat = dest_lat + offset_lat
-            activity_lon = dest_lon + offset_lon
-            
-            color = colors[i % len(colors)]
-            
-            folium.Marker(
-                [activity_lat, activity_lon],
-                popup=f"<b>🎯 {activity}</b><br>Activity {i+1}",
-                tooltip=activity,
-                icon=folium.Icon(color=color, icon='info-sign')
-            ).add_to(m)
-    
-    # Add a circle around destination
-    folium.CircleMarker(
-        [dest_lat, dest_lon],
-        radius=1000,
-        popup=f"<b>{destination} Area</b>",
-        color='red',
-        fill=True,
-        fillColor='red',
-        fillOpacity=0.1
-    ).add_to(m)
-    
-    return m
-
 def render_map(destination, activities=None):
-    """Render the impressive map using Folium."""
-    st.markdown("### 🗺️ Interactive Map View")
-    
-    with st.spinner("Loading interactive map..."):
-        map_obj = create_impressive_map(destination, activities)
-        
-        # Display the map with proper parameters
-        map_data = st_folium(
-            map_obj,
-            width=800,
-            height=500,
-            returned_objects=[]
-        )
-    
-    # Add some additional info
-    st.info("🗺️ **Map Features:** Interactive markers, multiple tile layers, and satellite view available!")
+    """Embed Google Maps iframe with optional activities."""
+    if not MAPS_API_KEY:
+        st.info("Google Maps API key not configured. Showing demo mode.")
+        st.image("https://via.placeholder.com/600x400.png?text=Map+Preview")
+        return
+
+    # Default to destination
+    query = destination.replace(" ", "+")
+
+    # If activities are provided, show the first one along with destination
+    if activities:
+        first_activity = activities[0].replace(" ", "+")
+        query = f"{destination.replace(' ', '+')}+{first_activity}"
+
+    map_url = (
+        f"https://www.google.com/maps/embed/v1/search?key={MAPS_API_KEY}&q={query}"
+    )
+    st.markdown(
+        f'<iframe src="{map_url}" width="700" height="450" style="border:0;" allowfullscreen="" loading="lazy"></iframe>',
+        unsafe_allow_html=True
+    )
 
 def export_pdf(itinerary, filename="itinerary.pdf"):
     """Export itinerary as a well-structured PDF file with auto-adjusted table cells."""
@@ -347,102 +257,8 @@ def export_pdf(itinerary, filename="itinerary.pdf"):
 #             st.success("✅ Your trip has been booked (demo mode). Safe travels!")
 
 
-st.set_page_config(page_title="AI Trip Planner", layout="wide", initial_sidebar_state="expanded")
-
-# Add custom CSS for impressive styling
-st.markdown("""
-<style>
-    .main-header {
-        background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
-        padding: 2rem;
-        border-radius: 15px;
-        color: white;
-        text-align: center;
-        margin-bottom: 2rem;
-        box-shadow: 0 10px 30px rgba(0,0,0,0.2);
-    }
-    
-    .main-header h1 {
-        margin: 0;
-        font-size: 3rem;
-        font-weight: bold;
-        text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
-    }
-    
-    .main-header p {
-        margin: 0.5rem 0 0 0;
-        font-size: 1.2rem;
-        opacity: 0.9;
-    }
-    
-    .stMetric {
-        background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
-        padding: 1rem;
-        border-radius: 10px;
-        border-left: 4px solid #667eea;
-        box-shadow: 0 4px 15px rgba(0,0,0,0.1);
-    }
-    
-    .stButton > button {
-        background: linear-gradient(45deg, #667eea, #764ba2);
-        color: white;
-        border: none;
-        border-radius: 25px;
-        padding: 0.5rem 2rem;
-        font-weight: bold;
-        box-shadow: 0 4px 15px rgba(0,0,0,0.2);
-        transition: all 0.3s ease;
-    }
-    
-    .stButton > button:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 6px 20px rgba(0,0,0,0.3);
-    }
-    
-    .sidebar .sidebar-content {
-        background: linear-gradient(180deg, #f8f9fa 0%, #e9ecef 100%);
-    }
-    
-    .stSelectbox > div > div {
-        background: white;
-        border-radius: 10px;
-        box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-    }
-    
-    .stTextInput > div > div > input {
-        border-radius: 10px;
-        box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-    }
-    
-    .stSlider > div > div > div > div {
-        background: linear-gradient(90deg, #667eea, #764ba2);
-    }
-    
-    .success-message {
-        background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
-        color: white;
-        padding: 1rem;
-        border-radius: 10px;
-        text-align: center;
-        font-weight: bold;
-        box-shadow: 0 4px 15px rgba(0,0,0,0.2);
-    }
-    
-    .map-container {
-        border-radius: 15px;
-        overflow: hidden;
-        box-shadow: 0 10px 30px rgba(0,0,0,0.3);
-    }
-</style>
-""", unsafe_allow_html=True)
-
-# Main header
-st.markdown("""
-<div class="main-header">
-    <h1>🧳 Personalized AI Trip Planner</h1>
-    <p>Plan your perfect adventure with AI-powered recommendations</p>
-</div>
-""", unsafe_allow_html=True)
+st.set_page_config(page_title="AI Trip Planner", layout="wide")
+st.title("🧳 Personalized AI Trip Planner")
 
 # --- Session State ---
 if "itinerary" not in st.session_state:
@@ -507,26 +323,9 @@ if st.session_state.itinerary and not st.session_state.pdf_ready:
                 else:
                     st.write(f"- Total: ${details}")
 
-        # Create two columns for better layout
-        col1, col2 = st.columns([2, 1])
-        
-        with col1:
-            st.subheader("🗺️ Interactive Map View")
-            first_day_activities = itinerary["plan"][0]["activities"] if itinerary.get("plan") else None
-            render_map(destination, first_day_activities)
-        
-        with col2:
-            st.subheader("📍 Quick Info")
-            st.metric("Destination", destination)
-            st.metric("Duration", f"{days} days")
-            st.metric("Budget", f"${budget}")
-            
-            if first_day_activities:
-                st.subheader("🎯 Day 1 Activities")
-                for i, activity in enumerate(first_day_activities[:5], 1):
-                    st.write(f"{i}. {activity}")
-                if len(first_day_activities) > 5:
-                    st.write(f"... and {len(first_day_activities) - 5} more")
+        st.subheader("📍 Map Preview")
+        first_day_activities = itinerary["plan"][0]["activities"] if itinerary.get("plan") else None
+        render_map(destination, first_day_activities)
 
         # Export PDF
         if st.button("Generate PDF Itinerary"):
@@ -551,17 +350,11 @@ if st.session_state.pdf_ready and st.session_state.pdf_data:
 
 # Show confirmation message (persistent)
 if st.session_state.get("trip_booked", False):
-    st.markdown("""
-    <div class="success-message">
-        ✅ Your trip has been booked successfully! 🎉<br>
-        <small>Check your email for confirmation details</small>
-    </div>
-    """, unsafe_allow_html=True)
+    st.success("✅ Your trip has been booked successfully! 🎉")
 
     # Optional: Button to reset everything
     if st.button("🔄 Plan Another Trip"):
         st.session_state.clear()
-        st.rerun()
 
 #     # After clicking, clear session state
 #     if clear_after:
