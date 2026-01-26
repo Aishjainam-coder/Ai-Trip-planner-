@@ -41,15 +41,18 @@ if 'api_cache' not in st.session_state:
 # =========================
 def generate_itinerary(destination, budget, days, interests):
     """Generate itinerary using Google Gemini API with caching and optimization."""
+
     # Create cache key
-    cache_key = hashlib.md5(f"{destination}_{budget}_{days}_{','.join(sorted(interests))}".encode()).hexdigest()
-    
+    cache_key = hashlib.md5(
+        f"{destination}_{budget}_{days}_{','.join(sorted(interests))}".encode()
+    ).hexdigest()
+
     # Check cache first
     if cache_key in st.session_state.api_cache:
         return st.session_state.api_cache[cache_key]
-    
-    if not GEMINI_API_KEY:
-        # Mock response for demo mode
+
+    # Demo fallback
+    if not GEMINI_API_KEY or not client:
         return {
             "destination": destination,
             "days": days,
@@ -67,8 +70,11 @@ def generate_itinerary(destination, budget, days, interests):
             }
         }
 
-    # Optimized prompt for faster response
-    prompt = f"""Create a {days}-day travel itinerary for {destination}. Budget: ${budget}. Interests: {', '.join(interests)}.
+    # Prompt
+    prompt = f"""
+Create a {days}-day travel itinerary for {destination}.
+Budget: ${budget}
+Interests: {', '.join(interests)}
 
 Return ONLY valid JSON:
 {{
@@ -83,47 +89,46 @@ Return ONLY valid JSON:
     "activities": {{"tours": 0, "tickets": 0}},
     "accommodation": {{"hotel": 0}}
   }}
-}}"""
-try:
-    
-    if not client:
-        return {"error": "Gemini API key not configured"}
+}}
+"""
 
-    response = client.models.generate_content(
-        model="gemini-1.5-pro",  # stable model
-        contents=prompt,
-        config={
-            "temperature": 0.7,
-            "top_p": 0.8,
-            "top_k": 40,
-            "max_output_tokens": 2048,
+    try:
+        response = client.models.generate_content(
+            model="gemini-1.5-pro",
+            contents=prompt,
+            config={
+                "temperature": 0.7,
+                "top_p": 0.8,
+                "top_k": 40,
+                "max_output_tokens": 2048,
+            }
+        )
+
+        text_content = response.text.strip()
+
+        # Handle ```json blocks
+        if text_content.startswith("```"):
+            json_start = text_content.find("{")
+            json_end = text_content.rfind("}") + 1
+            json_string = text_content[json_start:json_end]
+        else:
+            json_string = text_content
+
+        result = json.loads(json_string)
+
+        # Cache result
+        st.session_state.api_cache[cache_key] = result
+        return result
+
+    except json.JSONDecodeError as e:
+        return {
+            "error": "Gemini returned invalid JSON",
+            "raw_response": text_content,
+            "details": str(e)
         }
-    )
 
-    text_content = response.text.strip()
-
-    # Handle JSON inside code blocks (```json ... ```)
-    if text_content.startswith("```"):
-        json_start = text_content.find("{")
-        json_end = text_content.rfind("}") + 1
-        json_string = text_content[json_start:json_end]
-    else:
-        json_string = text_content
-
-    result = json.loads(json_string)
-
-    # Cache the result
-    st.session_state.api_cache[cache_key] = result
-    return result
-
-except json.JSONDecodeError as e:
-    return {
-        "error": f"Gemini returned invalid JSON: {str(e)}",
-        "raw_response": text_content
-    }
-
-except Exception as e:
-    return {"error": f"Gemini API error: {str(e)}"}
+    except Exception as e:
+        return {"error": f"Gemini API error: {str(e)}"}
 
 
 def render_map(destination, activities=None):
