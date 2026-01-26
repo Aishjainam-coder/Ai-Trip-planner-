@@ -2,7 +2,7 @@ import os
 import json
 import streamlit as st
 import streamlit.components.v1 as components
-import google.generativeai as genai
+from google import genai
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
 from datetime import datetime
@@ -23,9 +23,9 @@ from typing import Dict, Any
 load_dotenv()
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 MAPS_API_KEY = os.getenv("GOOGLE_MAPS_API_KEY")
-
+client = None
 if GEMINI_API_KEY:
-    genai.configure(api_key=GEMINI_API_KEY)
+    client = genai.Client(api_key=GEMINI_API_KEY)
 
 # Cache for API responses
 @st.cache_data(ttl=3600)  # Cache for 1 hour
