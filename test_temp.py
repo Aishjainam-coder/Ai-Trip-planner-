@@ -2,7 +2,7 @@ import os
 import json
 import streamlit as st
 import streamlit.components.v1 as components
-from google import genai
+import google.generativeai as genai
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
 from datetime import datetime
@@ -24,10 +24,8 @@ load_dotenv()
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 MAPS_API_KEY = os.getenv("GOOGLE_MAPS_API_KEY")
 
-client = None
 if GEMINI_API_KEY:
-    client = genai.Client(api_key=GEMINI_API_KEY)
-
+    genai.configure(api_key=GEMINI_API_KEY)
 
 # Cache for API responses
 @st.cache_data(ttl=3600)  # Cache for 1 hour
@@ -89,19 +87,20 @@ Return ONLY valid JSON:
 
     try:
         # Use faster model for better response time
-        response = client.models.generate_content(
-    model="gemini-1.5-flash",
-    contents=prompt,
-    config={
-        "temperature": 0.7,
-        "top_p": 0.8,
-        "top_k": 40,
-        "max_output_tokens": 2048,
-    }
-)
-
-text_content = response.text.strip()
-
+        model = genai.GenerativeModel("gemini-1.5-flash")
+        
+        # Configure generation parameters for speed
+        generation_config = {
+            "temperature": 0.7,
+            "top_p": 0.8,
+            "top_k": 40,
+            "max_output_tokens": 2048,
+        }
+        
+        response = model.generate_content(
+            prompt,
+            generation_config=generation_config
+        )
 
         text_content = response.text.strip()
 
@@ -535,4 +534,4 @@ if st.session_state.get("trip_booked", False):
 
 # # Show confirmation message
 # if st.session_state.get("trip_booked", False):
-#     st.success("✅ Your trip has been booked successfully! 🎉")    give whole correct code again
+#     st.success("✅ Your trip has been booked successfully! 🎉")    
