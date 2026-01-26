@@ -40,43 +40,36 @@ if 'api_cache' not in st.session_state:
 # HELPER FUNCTIONS
 # =========================
 def generate_itinerary(destination, budget, days, interests):
-    """Generate itinerary using Google Gemini API with caching and optimization."""
-
-    # Create cache key
+    """Generate itinerary using Gemini API with robust JSON parsing and caching."""
+    import re
     cache_key = hashlib.md5(
         f"{destination}_{budget}_{days}_{','.join(sorted(interests))}".encode()
     ).hexdigest()
 
-    # Check cache first
     if cache_key in st.session_state.api_cache:
         return st.session_state.api_cache[cache_key]
 
-    # Demo fallback
     if not GEMINI_API_KEY or not client:
+        # Demo fallback
         return {
             "destination": destination,
             "days": days,
             "budget": budget,
             "interests": interests,
-            "plan": [
-                {"day": 1, "activities": ["Visit heritage site", "Local food tour"]},
-                {"day": 2, "activities": ["Nightlife exploration", "City walk"]},
-            ],
+            "plan": [{"day": 1, "activities": ["Visit heritage site", "Local food tour"]}],
             "cost_breakdown": {
                 "transport": {"flights": 200, "local_transport": 50},
                 "food": {"breakfast": 30, "lunch": 50, "dinner": 70},
                 "activities": {"tours": 100, "tickets": 50},
-                "accommodation": {"hotel": 300}
-            }
+                "accommodation": {"hotel": 300},
+            },
         }
 
-    # Prompt
     prompt = f"""
 Create a {days}-day travel itinerary for {destination}.
 Budget: ${budget}
 Interests: {', '.join(interests)}
-
-Return ONLY valid JSON:
+Return ONLY valid JSON in the format:
 {{
   "destination": "{destination}",
   "days": {days},
@@ -96,27 +89,18 @@ Return ONLY valid JSON:
         response = client.models.generate_content(
             model="gemini-2.5-flash",
             contents=prompt,
-            config={
-                "temperature": 0.7,
-                "top_p": 0.8,
-                "top_k": 40,
-                "max_output_tokens": 2048,
-            }
+            config={"temperature": 0.0, "max_output_tokens": 2048}
         )
 
         text_content = response.text.strip()
 
-        # Handle ```json blocks
-        if text_content.startswith("```"):
-            json_start = text_content.find("{")
-            json_end = text_content.rfind("}") + 1
-            json_string = text_content[json_start:json_end]
-        else:
-            json_string = text_content
+        # Extract JSON using regex (robust)
+        match = re.search(r"\{.*\}", text_content, re.DOTALL)
+        if not match:
+            raise ValueError("No JSON found in Gemini response")
 
-        result = json.loads(json_string)
+        result = json.loads(match.group())
 
-        # Cache result
         st.session_state.api_cache[cache_key] = result
         return result
 
