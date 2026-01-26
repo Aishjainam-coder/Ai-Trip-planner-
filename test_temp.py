@@ -84,8 +84,8 @@ Return ONLY valid JSON:
     "accommodation": {{"hotel": 0}}
   }}
 }}"""
-
-    try:
+try:
+    
     if not client:
         return {"error": "Gemini API key not configured"}
 
