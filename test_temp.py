@@ -5,7 +5,7 @@ import streamlit.components.v1 as components
 from google import genai
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
-from datetime import datetime 
+from datetime import datetime
 from dotenv import load_dotenv
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import letter
@@ -535,4 +535,4 @@ if st.session_state.get("trip_booked", False):
 
 # # Show confirmation message
 # if st.session_state.get("trip_booked", False):
-#     st.success("✅ Your trip has been booked successfully! 🎉")    
+#     st.success("✅ Your trip has been booked successfully! 🎉")    give whole correct code again
