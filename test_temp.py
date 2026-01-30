@@ -82,7 +82,7 @@ Schema:
 
     try:
         response = client.models.generate_content(
-            model="gemini-1.5-pro",,  # FIXED: Removed "models/" prefix
+            model="gemini-1.5-pro",  # FIXED: Removed "models/" prefix
             contents=prompt,
             config={
                 "temperature": 0,
