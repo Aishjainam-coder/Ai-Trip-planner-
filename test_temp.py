@@ -4,25 +4,12 @@ import re
 import hashlib
 import streamlit as st
 import streamlit.components.v1 as components
+import google.generativeai as genai
+from dotenv import load_dotenv
 from reportlab.lib.pagesizes import letter
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
 from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.lib import colors
-
-# Try to import google.generativeai (newer SDK)
-try:
-    import google.generativeai as genai
-    USE_NEW_SDK = True
-except ImportError:
-    # Fallback to older SDK
-    try:
-        from google import genai
-        USE_NEW_SDK = False
-    except ImportError:
-        genai = None
-        USE_NEW_SDK = None
-
-from dotenv import load_dotenv
 
 # ======================
 # ENV + GEMINI CLIENT
@@ -30,13 +17,8 @@ from dotenv import load_dotenv
 load_dotenv()
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
-# Configure the client based on which SDK is available
-if genai and GEMINI_API_KEY:
-    if USE_NEW_SDK:
-        genai.configure(api_key=GEMINI_API_KEY)
-    else:
-        # Old SDK
-        pass
+if GEMINI_API_KEY:
+    genai.configure(api_key=GEMINI_API_KEY)
 
 # ======================
 # SESSION CACHE
@@ -55,8 +37,8 @@ def generate_itinerary(destination, budget, days, interests):
     if cache_key in st.session_state.api_cache:
         return st.session_state.api_cache[cache_key]
 
-    # ---------- Fallback if API key missing or SDK not available ----------
-    if not GEMINI_API_KEY or not genai:
+    # ---------- Fallback if API key missing ----------
+    if not GEMINI_API_KEY:
         data = {
             "destination": destination,
             "days": days,
@@ -84,60 +66,54 @@ def generate_itinerary(destination, budget, days, interests):
         return data
 
     prompt = f"""
-Create a {days}-day trip itinerary for {destination} with a budget of ${budget}.
+Create a detailed {days}-day trip itinerary for {destination} with a budget of ${budget}.
 Focus on these interests: {', '.join(interests)}.
 
-Return ONLY valid JSON with this exact structure:
+Return ONLY valid JSON with this exact structure (no markdown, no code blocks):
 {{
   "destination": "{destination}",
   "days": {days},
   "budget": {budget},
   "interests": {json.dumps(interests)},
   "plan": [
-    {{"day": 1, "activities": ["Morning: activity description", "Afternoon: activity description", "Evening: activity description"]}}
+    {{"day": 1, "activities": ["Morning: detailed activity", "Afternoon: detailed activity", "Evening: detailed activity"]}}
   ],
   "cost_breakdown": {{
-    "transport": {{"flights": 0, "local_transport": 0}},
-    "food": {{"breakfast": 0, "lunch": 0, "dinner": 0}},
-    "activities": {{"tours": 0, "tickets": 0}},
-    "accommodation": {{"hotel": 0}}
+    "transport": {{"flights": 300, "local_transport": 50}},
+    "food": {{"breakfast": 100, "lunch": 150, "dinner": 200}},
+    "activities": {{"tours": 200, "tickets": 100}},
+    "accommodation": {{"hotel": 300}}
   }}
 }}
 
-Make the budget breakdown realistic and ensure all costs add up to approximately ${budget}.
+Make the costs realistic and ensure they sum to approximately ${budget}.
+Include specific activity recommendations based on the selected interests.
 """
 
     try:
-        if USE_NEW_SDK:
-            # Using google.generativeai (newer, recommended SDK)
-            model = genai.GenerativeModel('gemini-1.5-pro')
-            response = model.generate_content(
-                prompt,
-                generation_config={
-                    "temperature": 0.7,
-                    "max_output_tokens": 2048,
-                }
+        # Use the correct new SDK method
+        model = genai.GenerativeModel('gemini-1.5-pro')
+        
+        response = model.generate_content(
+            prompt,
+            generation_config=genai.types.GenerationConfig(
+                temperature=0.7,
+                max_output_tokens=2048,
             )
-            raw = response.text.strip()
-        else:
-            # Using google.genai (older SDK)
-            client = genai.Client(api_key=GEMINI_API_KEY)
-            response = client.models.generate_content(
-                model="gemini-1.5-pro",
-                contents=prompt,
-                config={
-                    "temperature": 0.7,
-                    "max_output_tokens": 2048,
-                },
-            )
-            raw = response.text.strip()
+        )
+        
+        raw = response.text.strip()
+        
+        # Remove markdown code blocks if present
+        raw = re.sub(r'```json\s*', '', raw)
+        raw = re.sub(r'```\s*$', '', raw)
 
         # Extract JSON from response
         try:
             data = json.loads(raw)
         except json.JSONDecodeError:
             # Try to find JSON in the response
-            match = re.search(r"\{[\s\S]*\}", raw)
+            match = re.search(r'\{[\s\S]*\}', raw)
             if match:
                 data = json.loads(match.group())
             else:
@@ -147,24 +123,40 @@ Make the budget breakdown realistic and ensure all costs add up to approximately
         return data
 
     except Exception as e:
+        error_msg = str(e)
+        
+        # Check for specific API errors
+        if "API_KEY" in error_msg or "authentication" in error_msg.lower():
+            suggestion = "Your API key may be invalid. Visit https://aistudio.google.com/app/apikey to get a new one."
+        elif "quota" in error_msg.lower() or "limit" in error_msg.lower():
+            suggestion = "You may have exceeded your API quota. Check your usage at https://aistudio.google.com/"
+        else:
+            suggestion = "Try regenerating the itinerary or check your internet connection."
+        
         return {
-            "error": str(e),
-            "suggestion": "Check your API key and library version. Run: pip install -U google-generativeai",
+            "error": error_msg,
+            "suggestion": suggestion,
         }
 
 # ======================
 # MAP
 # ======================
 def render_map(destination):
+    # URL encode the destination
+    encoded_dest = destination.replace(" ", "+")
     html = f"""
     <iframe
         width="100%"
         height="400"
         frameborder="0"
-        src="https://www.openstreetmap.org/export/embed.html?search={destination}">
+        style="border:0"
+        src="https://www.openstreetmap.org/export/embed.html?bbox=-180,-90,180,90&layer=mapnik&marker=0,0"
+        allowfullscreen>
     </iframe>
+    <br/>
+    <small><a href="https://www.openstreetmap.org/search?query={encoded_dest}" target="_blank">View larger map</a></small>
     """
-    components.html(html, height=420)
+    components.html(html, height=450)
 
 # ======================
 # PDF EXPORT
@@ -219,14 +211,12 @@ def export_pdf(itinerary):
 st.set_page_config(page_title="AI Trip Planner", layout="wide")
 st.title("🧳 Personalized AI Trip Planner")
 
-# Show SDK status
-if not genai:
-    st.error("⚠️ Google Generative AI library not found. Please install it: `pip install google-generativeai`")
-elif not GEMINI_API_KEY:
-    st.warning("⚠️ No GEMINI_API_KEY found. Using fallback data. Add your API key to .env file.")
+# Show API status
+if not GEMINI_API_KEY:
+    st.warning("⚠️ No GEMINI_API_KEY found in .env file. Using demo mode with fallback data.")
+    st.info("To use AI-powered itineraries, get an API key from https://aistudio.google.com/app/apikey")
 else:
-    sdk_type = "google-generativeai (recommended)" if USE_NEW_SDK else "google-genai (legacy)"
-    st.sidebar.success(f"✅ Using {sdk_type}")
+    st.sidebar.success("✅ Gemini API Connected")
 
 st.sidebar.header("Plan Your Trip")
 
@@ -241,7 +231,7 @@ interests = st.sidebar.multiselect(
 )
 
 if st.sidebar.button("🚀 Generate Itinerary"):
-    with st.spinner("Generating itinerary..."):
+    with st.spinner("✨ Creating your personalized itinerary..."):
         st.session_state.itinerary = generate_itinerary(
             destination, budget, days, interests
         )
@@ -257,15 +247,16 @@ if "itinerary" in st.session_state:
     elif "error" in data:
         st.error(f"❌ Error: {data['error']}")
         if "suggestion" in data:
-            st.info(f"💡 {data['suggestion']}")
+            st.info(f"💡 Suggestion: {data['suggestion']}")
     else:
-        st.subheader(f"{days}-Day Trip to {destination}")
-
+        st.success(f"✅ Your {days}-day trip to {destination} is ready!")
+        
         col1, col2 = st.columns([2, 1])
         
         with col1:
+            st.subheader("📅 Daily Itinerary")
             for d in data["plan"]:
-                with st.expander(f"📅 Day {d['day']}", expanded=True):
+                with st.expander(f"Day {d['day']}", expanded=True):
                     for a in d["activities"]:
                         st.write(f"• {a}")
 
@@ -275,28 +266,39 @@ if "itinerary" in st.session_state:
             for cat, items in data["cost_breakdown"].items():
                 cat_total = sum(items.values())
                 total += cat_total
-                st.write(f"**{cat.title()}:** ${cat_total}")
-            st.write(f"**Total:** ${total}")
+                with st.expander(f"{cat.title()}: ${cat_total}"):
+                    for k, v in items.items():
+                        st.write(f"• {k.title()}: ${v}")
+            st.metric("Total Budget", f"${total}")
 
-        st.subheader("📍 Map")
+        st.markdown("---")
+        
+        st.subheader("📍 Location")
         render_map(destination)
+        
+        st.markdown("---")
 
-        if st.button("📄 Generate PDF"):
-            pdf = export_pdf(data)
-            with open(pdf, "rb") as f:
-                st.download_button(
-                    "Download PDF",
-                    f,
-                    file_name="itinerary.pdf",
-                    mime="application/pdf",
-                )
-
-    if st.button("🛫 Book Trip (Demo)"):
-        st.session_state["trip_booked"] = True
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("📄 Generate PDF Report"):
+                with st.spinner("Creating PDF..."):
+                    pdf = export_pdf(data)
+                    with open(pdf, "rb") as f:
+                        st.download_button(
+                            "📥 Download PDF",
+                            f,
+                            file_name="trip_itinerary.pdf",
+                            mime="application/pdf",
+                        )
+        
+        with col2:
+            if st.button("🛫 Book Trip (Demo)"):
+                st.session_state["trip_booked"] = True
 
 if st.session_state.get("trip_booked", False):
+    st.balloons()
     st.success("✅ Your trip has been booked successfully! 🎉")
-
+    
     if st.button("🔄 Plan Another Trip"):
         st.session_state.clear()
         st.rerun()
