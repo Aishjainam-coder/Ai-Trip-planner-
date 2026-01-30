@@ -1,7 +1,6 @@
 import os
 import json
 import re
-import time
 import hashlib
 import streamlit as st
 import streamlit.components.v1 as components
@@ -39,9 +38,9 @@ def generate_itinerary(destination, budget, days, interests):
     if cache_key in st.session_state.api_cache:
         return st.session_state.api_cache[cache_key]
 
-    # Fallback (no API key)
+    # ---------- Fallback if API key missing ----------
     if not client:
-        return {
+        data = {
             "destination": destination,
             "days": days,
             "budget": budget,
@@ -57,6 +56,8 @@ def generate_itinerary(destination, budget, days, interests):
                 "accommodation": {"hotel": 400},
             },
         }
+        st.session_state.api_cache[cache_key] = data
+        return data
 
     prompt = f"""
 Return ONLY valid JSON. No markdown. No explanation.
@@ -81,7 +82,7 @@ Schema:
 
     try:
         response = client.models.generate_content(
-            model="gemini-1.5-pro",
+            model="models/gemini-1.5-pro",
             contents=prompt,
             config={
                 "temperature": 0,
@@ -97,7 +98,7 @@ Schema:
         except json.JSONDecodeError:
             match = re.search(r"\{[\s\S]*\}", raw)
             if not match:
-                raise ValueError("No JSON in Gemini response")
+                raise ValueError("No valid JSON found in Gemini response")
             data = json.loads(match.group())
 
         st.session_state.api_cache[cache_key] = data
@@ -106,11 +107,11 @@ Schema:
     except Exception as e:
         return {
             "error": str(e),
-            "raw_response": raw if "raw" in locals() else None,
+            "raw_response": raw if "raw" in locals() else "",
         }
 
 # ======================
-# MAP (OPENSTREETMAP)
+# MAP
 # ======================
 def render_map(destination):
     html = f"""
@@ -200,7 +201,9 @@ if st.sidebar.button("🚀 Generate Itinerary"):
 if "itinerary" in st.session_state:
     data = st.session_state.itinerary
 
-    if "error" in data:
+    if not isinstance(data, dict):
+        st.error("Invalid response. Please regenerate.")
+    elif "error" in data:
         st.error(data["error"])
         st.code(data.get("raw_response", ""))
     else:
@@ -224,29 +227,11 @@ if "itinerary" in st.session_state:
                     mime="application/pdf",
                 )
 
-
-    # Book Trip Button
     if st.button("🛫 Book Trip (Demo)"):
         st.session_state["trip_booked"] = True
 
-# Show confirmation message (persistent)
 if st.session_state.get("trip_booked", False):
     st.success("✅ Your trip has been booked successfully! 🎉")
 
-    # Optional: Button to reset everything
     if st.button("🔄 Plan Another Trip"):
         st.session_state.clear()
-
-#     # After clicking, clear session state
-#     if clear_after:
-#         st.session_state.itinerary = None
-#         st.session_state.pdf_data = None
-#         st.session_state.pdf_ready = False
-
-#     # Book Trip Button
-#     if st.button("🛫 Book Trip (Demo)"):
-#         st.session_state["trip_booked"] = True
-
-# # Show confirmation message
-# if st.session_state.get("trip_booked", False):
-#     st.success("✅ Your trip has been booked successfully! 🎉")    
