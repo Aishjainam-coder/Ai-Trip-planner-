@@ -10,6 +10,8 @@ from reportlab.lib.pagesizes import letter
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
 from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.lib import colors
+import folium
+from streamlit_folium import st_folium
 
 # ======================
 # ENV + GEMINI CLIENT
@@ -61,6 +63,7 @@ def generate_itinerary(destination, budget, days, interests):
                 "activities": {"tours": int(budget * 0.1), "tickets": int(budget * 0.05)},
                 "accommodation": {"hotel": int(budget * 0.05)},
             },
+            "coordinates": {"lat": 48.8566, "lon": 2.3522} if destination.lower() == "paris" else {"lat": 0, "lon": 0},
         }
         st.session_state.api_cache[cache_key] = data
         return data
@@ -83,7 +86,8 @@ Return ONLY valid JSON with this exact structure (no markdown, no code blocks):
     "food": {{"breakfast": 100, "lunch": 150, "dinner": 200}},
     "activities": {{"tours": 200, "tickets": 100}},
     "accommodation": {{"hotel": 300}}
-  }}
+  }},
+  "coordinates": {{"lat": 48.8566, "lon": 2.3522}}
 }}
 
 Make the costs realistic and ensure they sum to approximately ${budget}.
@@ -92,7 +96,7 @@ Include specific activity recommendations based on the selected interests.
 
     try:
         # Use the correct new SDK method
-        model = genai.GenerativeModel('gemini-1.5-pro')
+        model = genai.GenerativeModel('gemini-1.5-flash')
         
         response = model.generate_content(
             prompt,
@@ -141,22 +145,22 @@ Include specific activity recommendations based on the selected interests.
 # ======================
 # MAP
 # ======================
-def render_map(destination):
-    # URL encode the destination
-    encoded_dest = destination.replace(" ", "+")
-    html = f"""
-    <iframe
-        width="100%"
-        height="400"
-        frameborder="0"
-        style="border:0"
-        src="https://www.openstreetmap.org/export/embed.html?bbox=-180,-90,180,90&layer=mapnik&marker=0,0"
-        allowfullscreen>
-    </iframe>
-    <br/>
-    <small><a href="https://www.openstreetmap.org/search?query={encoded_dest}" target="_blank">View larger map</a></small>
-    """
-    components.html(html, height=450)
+def render_map(destination, coords=None):
+    if coords and "lat" in coords and "lon" in coords:
+        lat, lon = coords["lat"], coords["lon"]
+    else:
+        # Fallback coordinates if API fails to provide them
+        lat, lon = 0, 0
+    
+    m = folium.Map(location=[lat, lon], zoom_start=12 if lat != 0 else 2)
+    folium.Marker(
+        [lat, lon], 
+        popup=destination, 
+        tooltip=f"Welcome to {destination}!",
+        icon=folium.Icon(color='red', icon='info-sign')
+    ).add_to(m)
+    
+    st_folium(m, width="100%", height=400)
 
 # ======================
 # PDF EXPORT
@@ -208,7 +212,41 @@ def export_pdf(itinerary):
 # ======================
 # STREAMLIT UI
 # ======================
-st.set_page_config(page_title="AI Trip Planner", layout="wide")
+st.set_page_config(page_title="AI Trip Planner", layout="wide", page_icon="🧳")
+
+# Custom CSS for Premium Look
+st.markdown("""
+<style>
+    .main {
+        background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+    }
+    .stButton>button {
+        width: 100%;
+        border-radius: 20px;
+        height: 3em;
+        background-color: #ff4b4b;
+        color: white;
+        border: none;
+        transition: all 0.3s ease;
+    }
+    .stButton>button:hover {
+        background-color: #ff3333;
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(255, 75, 75, 0.3);
+    }
+    .sidebar .sidebar-content {
+        background: rgba(255, 255, 255, 0.8);
+        backdrop-filter: blur(10px);
+    }
+    .stExpander {
+        background: white;
+        border-radius: 10px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+        margin-bottom: 10px;
+    }
+</style>
+""", unsafe_allow_html=True)
+
 st.title("🧳 Personalized AI Trip Planner")
 
 # Show API status
@@ -274,7 +312,7 @@ if "itinerary" in st.session_state:
         st.markdown("---")
         
         st.subheader("📍 Location")
-        render_map(destination)
+        render_map(destination, data.get("coordinates"))
         
         st.markdown("---")
 
